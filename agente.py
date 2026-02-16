@@ -6,13 +6,14 @@ from langchain_community.callbacks.streamlit import StreamlitCallbackHandler
 from langchain_core.tools import Tool
 import datetime
 import requests
+import xml.etree.ElementTree as ET
 
 # --- Configuración de la página ---
 st.set_page_config(page_title="Agente de Tiempo y Clima", page_icon="☀️", layout="wide")
 
 st.title("☀️ Agente Meteorológico ☁️")
 st.markdown("""
-Este agente te dice la hora exacta y el clima en cualquier parte del mundo usando **Open-Meteo**.
+Este agente te dice la hora, el clima (Open-Meteo) y **alertas oficiales de AEMET**.
 """)
 
 # --- Sidebar para configuración ---
@@ -21,15 +22,19 @@ with st.sidebar:
     
     # Input para la API Key de Google
     google_api_key = st.text_input("Google API Key", type="password", key="google_api_key")
-    st.markdown("[Consigue tu API Key aquí](https://aistudio.google.com/app/apikey)")
+    st.markdown("[Consigue tu Google API Key](https://aistudio.google.com/app/apikey)")
     
+    # Input AEMET
+    aemet_api_key = st.text_input("AEMET API Key (Opcional)", type="password", key="aemet_api_key")
+    st.markdown("[Consigue tu AEMET API Key](https://opendata.aemet.es/centrodescargas/inicio)")
+
     # Modelos actualizados
-    model_options = ["gemini-2.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"]
+    model_options = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"]
     selected_model = st.selectbox("Modelo", model_options, index=0)
     
     st.divider()
     st.markdown("### Acerca de")
-    st.markdown("Creado con LangChain, Streamlit y Open-Meteo API.")
+    st.markdown("Creado con LangChain, Streamlit, Open-Meteo y AEMET.")
 
 if not google_api_key:
     st.info("👋 Por favor, ingresa tu **Google API Key** en la barra lateral para comenzar.")
@@ -44,8 +49,7 @@ def get_current_time(query: str = "") -> str:
 
 def get_weather(location: str) -> str:
     """
-    Obtiene el clima actual y pronóstico para una ubicación dada.
-    Usa Open-Meteo API (gratuita).
+    Obtiene el clima actual y pronóstico para una ubicación dada usando Open-Meteo.
     """
     try:
         # 1. Geocoding
@@ -69,9 +73,6 @@ def get_weather(location: str) -> str:
         temp = current.get("temperature_2m", "N/A")
         wind = current.get("wind_speed_10m", "N/A")
         
-        # Simple mapping for weather codes (WMO)
-        # https://open-meteo.com/en/docs
-        
         report = f"Clima actual en {name}:\n"
         report += f"- Temperatura: {temp}°C\n"
         report += f"- Viento: {wind} km/h\n"
@@ -87,6 +88,55 @@ def get_weather(location: str) -> str:
     except Exception as e:
         return f"Error al obtener el clima: {str(e)}"
 
+def check_aemet_alerts(location: str) -> str:
+    """
+    Consulta alertas meteorológicas vigentes en AEMET para una ubicación (provincia o zona).
+    Requiere AEMET API Key.
+    """
+    if not aemet_api_key:
+        return "No puedo consultar alertas sin una AEMET API Key configurada."
+        
+    try:
+        # Endpoint para avisos de hoy
+        url = "https://opendata.aemet.es/opendata/api/avisos_de_fenomenos_meteorologicos_adversos/archivo/hoy"
+        headers = {"api_key": aemet_api_key}
+        
+        # 1. Obtener URL de datos
+        res = requests.get(url, headers=headers)
+        if res.status_code != 200:
+             return f"Error conectando con AEMET: {res.status_code} - {res.text}"
+             
+        json_res = res.json()
+        if json_res.get("estado") != 200:
+             return f"Error API AEMET: {json_res.get('descripcion')}"
+             
+        data_url = json_res.get("datos")
+        
+        # 2. Descargar datos (suelen ser XML/JSON)
+        # Nota: AEMET a veces devuelve XML en este endpoint aunque pidas JSON en la metadata
+        data_res = requests.get(data_url)
+        
+        # Como es complejo parsear todo el CAP (Common Alerting Protocol), 
+        # haremos una búsqueda de texto simple primero para ver si la ubicación está mencionada.
+        # En una app real, usaríamos una librería CAP parser.
+        
+        content = data_res.text
+        
+        # Búsqueda muy básica para demostración
+        # Buscamos si el nombre de la ubicación aparece en las alertas
+        if location.lower() in content.lower():
+             # Extraer un fragmento alrededor
+             idx = content.lower().find(location.lower())
+             start = max(0, idx - 100)
+             end = min(len(content), idx + 300)
+             snippet = content[start:end]
+             return f"⚠️ POSIBLE ALERTA ENCONTRADA para {location}. Fragmento del aviso oficial:\n...{snippet}...\n(Consulta la web de AEMET para detalles oficiales)."
+        else:
+             return f"No encontré menciones explícitas de alertas para '{location}' en el boletín de hoy de AEMET. (Nota: Esto es una búsqueda básica en el texto del aviso)."
+
+    except Exception as e:
+        return f"Error consultando alertas AEMET: {str(e)}"
+
 time_tool = Tool(
     name="get_current_time",
     func=get_current_time,
@@ -99,7 +149,13 @@ weather_tool = Tool(
     description="Útil para saber el clima, temperatura o pronóstico del tiempo de una ciudad o lugar."
 )
 
-tools = [time_tool, weather_tool]
+aemet_tool = Tool(
+    name="check_aemet_alerts",
+    func=check_aemet_alerts,
+    description="Útil para comprobar si hay alertas meteorológicas oficiales (AEMET) de lluvia, viento, nieve, etc. en una provincia o ciudad española."
+)
+
+tools = [time_tool, weather_tool, aemet_tool]
 
 # --- Prompt ---
 template = '''Answer the following questions as best you can. You have access to the following tools:
@@ -140,7 +196,7 @@ except Exception as e:
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "¡Hola! Soy tu agente meteorológico. Pregúntame la hora o el clima de cualquier ciudad."}
+        {"role": "assistant", "content": "¡Hola! Soy tu agente meteorológico. Pregúntame sobre el clima o si hay alertas en tu zona."}
     ]
 
 # Mostrar mensajes del historial
