@@ -97,47 +97,58 @@ def check_aemet_alerts(location: str) -> str:
         return "No puedo consultar alertas sin una AEMET API Key configurada."
         
     try:
-        # Suppress SSL warnings for AEMET (common issue)
+        # Suppress SSL warnings
         requests.packages.urllib3.disable_warnings()
         
         # Endpoint para avisos de hoy
         url = "https://opendata.aemet.es/opendata/api/avisos_de_fenomenos_meteorologicos_adversos/archivo/hoy"
-        
-        # Intentar con query param que suele ser más robusto
         params = {"api_key": aemet_api_key}
         
-        # 1. Obtener URL de datos (verify=False porque AEMET a veces tiene problemas de certs)
-        res = requests.get(url, params=params, verify=False, timeout=10)
-        
-        if res.status_code != 200:
-             return f"Error conectando con AEMET (Status {res.status_code}). Verifica tu API Key. Respuesta: {res.text[:100]}"
-             
-        json_res = res.json()
-        if json_res.get("estado") != 200:
-             return f"Error devuelto por la API AEMET: {json_res.get('descripcion')}"
-             
-        data_url = json_res.get("datos")
-        
-        # 2. Descargar datos
-        data_res = requests.get(data_url, verify=False, timeout=20)
-        
-        # AEMET a veces devuelve encoding 'iso-8859-1' o 'windows-1252'
-        data_res.encoding = data_res.apparent_encoding
-        
-        content = data_res.text
-        
-        # Búsqueda muy básica para demostración
-        if location.lower() in content.lower():
-             idx = content.lower().find(location.lower())
-             start = max(0, idx - 100)
-             end = min(len(content), idx + 300)
-             snippet = content[start:end]
-             return f"⚠️ POSIBLE ALERTA ENCONTRADA para {location}. Fragmento:\n...{snippet}..."
-        else:
-             return f"No encontré menciones de alertas para '{location}' en el boletín de hoy."
+        # 1. Intentar API
+        try:
+            res = requests.get(url, params=params, verify=False, timeout=10)
+            if res.status_code == 200:
+                json_res = res.json()
+                if json_res.get("estado") == 200:
+                    data_url = json_res.get("datos")
+                    data_res = requests.get(data_url, verify=False, timeout=20)
+                    data_res.encoding = data_res.apparent_encoding
+                    content = data_res.text
+                    
+                    if location.lower() in content.lower():
+                        idx = content.lower().find(location.lower())
+                        start = max(0, idx - 100)
+                        end = min(len(content), idx + 300)
+                        return f"⚠️ POSIBLE ALERTA ENCONTRADA (vía API) para {location}. Fragmento:\n...{content[start:end]}..."
+                    else:
+                        return f"No encontré menciones de alertas para '{location}' en el boletín de hoy (vía API)."
+        except Exception as e:
+            print(f"Fallo API AEMET: {e}")
+            pass # Fallback a búsqueda
+
+        # 2. Fallback: Buscar en DuckDuckGo si la API falla
+        return search_func(f"Alertas AEMET hoy {location}")
 
     except Exception as e:
-        return f"Error consultando alertas AEMET: {str(e)}"
+        return f"Error consultando alertas: {str(e)}"
+
+# Re-integrar función de búsqueda para el fallback
+def search_func(query: str) -> str:
+    """Busca en internet con reintentos."""
+    try:
+        from duckduckgo_search import DDGS
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=3, backend="html"))
+                if results: return str(results)
+        except: pass
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=3, backend="lite"))
+                if results: return str(results)
+        except: pass
+        return "No se encontraron resultados de búsqueda."
+    except: return "Error en librería de búsqueda."
 
 time_tool = Tool(
     name="get_current_time",
