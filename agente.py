@@ -104,6 +104,8 @@ def check_aemet_alerts(location: str) -> str:
         url = "https://opendata.aemet.es/opendata/api/avisos_de_fenomenos_meteorologicos_adversos/archivo/hoy"
         params = {"api_key": aemet_api_key}
         
+        print(f"DEBUG: Consultando API AEMET para {location}...")
+        
         # 1. Intentar API
         try:
             res = requests.get(url, params=params, verify=False, timeout=10)
@@ -115,19 +117,30 @@ def check_aemet_alerts(location: str) -> str:
                     data_res.encoding = data_res.apparent_encoding
                     content = data_res.text
                     
-                    if location.lower() in content.lower():
-                        idx = content.lower().find(location.lower())
+                    # Normalización simple para búsqueda (minusculas)
+                    content_lower = content.lower()
+                    loc_lower = location.lower()
+                    
+                    # Buscamos la ubicación
+                    if loc_lower in content_lower:
+                        idx = content_lower.find(loc_lower)
                         start = max(0, idx - 100)
                         end = min(len(content), idx + 300)
-                        return f"⚠️ POSIBLE ALERTA ENCONTRADA (vía API) para {location}. Fragmento:\n...{content[start:end]}..."
+                        return f"⚠️ ALERTA ENCONTRADA (API) para {location}.\nFragmento del boletín:\n...{content[start:end]}..."
                     else:
-                        return f"No encontré menciones de alertas para '{location}' en el boletín de hoy (vía API)."
+                        print(f"DEBUG: '{location}' no encontrado en el boletín API.")
+                        # Si no encuentra la ciudad exacta, busca "España" o zonas grandes para ver si hay avisos generalizados
+                        # Pero mejor pasamos al fallback de búsqueda que es más "semántico"
+                        pass 
         except Exception as e:
             print(f"Fallo API AEMET: {e}")
-            pass # Fallback a búsqueda
+            pass
 
-        # 2. Fallback: Buscar en DuckDuckGo si la API falla
-        return search_func(f"Alertas AEMET hoy {location}")
+        # 2. Fallback: Buscar en DuckDuckGo (Mejorado)
+        # Buscamos específicamente en la web de AEMET o noticias recientes
+        search_query = f"AEMET avisos {location} hoy última hora"
+        print(f"DEBUG: Fallback búsqueda '{search_query}'")
+        return search_func(search_query)
 
     except Exception as e:
         return f"Error consultando alertas: {str(e)}"
@@ -137,17 +150,18 @@ def search_func(query: str) -> str:
     """Busca en internet con reintentos."""
     try:
         from duckduckgo_search import DDGS
+        print(f"DEBUG: Ejecutando búsqueda DDGS: {query}")
         try:
             with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=3, backend="html"))
+                results = list(ddgs.text(query, max_results=4, backend="html"))
                 if results: return str(results)
         except: pass
         try:
             with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=3, backend="lite"))
+                results = list(ddgs.text(query, max_results=4, backend="lite"))
                 if results: return str(results)
         except: pass
-        return "No se encontraron resultados de búsqueda."
+        return "No pude confirmar alertas por internet. Por precaución, revisa www.aemet.es."
     except: return "Error en librería de búsqueda."
 
 time_tool = Tool(
