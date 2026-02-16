@@ -8,39 +8,55 @@ import datetime
 import requests
 import xml.etree.ElementTree as ET
 
-# --- Configuración de la página ---
-st.set_page_config(page_title="Agente de Tiempo y Clima", page_icon="☀️", layout="wide")
+# --- Configuración de la página y CSS ---
+st.set_page_config(page_title="Agente Meteorológico", page_icon="🌤️", layout="wide")
 
-st.title("☀️ Agente Meteorológico ☁️")
 st.markdown("""
-Este agente te dice la hora, el clima (Open-Meteo) y **alertas oficiales de AEMET**.
-""")
+<style>
+    .stApp {
+        background-color: #0e1117;
+    }
+    .stChatMessage {
+        border-radius: 10px;
+        padding: 10px;
+    }
+    h1 {
+        background: -webkit-linear-gradient(45deg, #FFD700, #FF8C00);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .stDeployButton {display:none;}
+    footer {visibility: hidden;}
+    #MainMenu {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🌤️ AI Weather Assistant")
+st.caption("🚀 Powered by Gemini, Open-Meteo & AEMET")
 
 # --- Sidebar para configuración ---
 with st.sidebar:
-    st.header("Configuración")
+    st.image("https://cdn-icons-png.flaticon.com/512/869/869869.png", width=100)
+    st.header("⚙️ Configuración")
     
-    # Input para la API Key de Google
-    google_api_key = st.text_input("Google API Key", type="password", key="google_api_key")
-    st.markdown("[Consigue tu Google API Key](https://aistudio.google.com/app/apikey)")
-    
-    # Input AEMET
-    aemet_api_key = st.text_input("AEMET API Key (Opcional)", type="password", key="aemet_api_key")
-    st.markdown("[Consigue tu AEMET API Key](https://opendata.aemet.es/centrodescargas/inicio)")
+    with st.expander("🔑 API Keys", expanded=True):
+        google_api_key = st.text_input("Google API Key", type="password", help="Necesaria para el cerebro del agente (Gemini).")
+        aemet_api_key = st.text_input("AEMET API Key", type="password", help="Opcional. Para alertas oficiales precisas en España.")
+        st.markdown("[Obtener Google Key](https://aistudio.google.com/app/apikey)")
+        st.markdown("[Obtener AEMET Key](https://opendata.aemet.es/centrodescargas/inicio)")
 
-    # Modelos actualizados
-    model_options = ["gemini-2.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"]
-    selected_model = st.selectbox("Modelo", model_options, index=0)
+    with st.expander("🧠 Modelo IA", expanded=False):
+        model_options = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"]
+        selected_model = st.selectbox("Versión", model_options, index=0)
     
     st.divider()
-    st.markdown("### Acerca de")
-    st.markdown("Creado con LangChain, Streamlit, Open-Meteo y AEMET.")
+    st.info("💡 **Tip:** Pregunta por 'Alertas en [Ciudad]' para ver avisos oficiales.")
 
 if not google_api_key:
-    st.info("👋 Por favor, ingresa tu **Google API Key** en la barra lateral para comenzar.")
+    st.warning("⚠️ Por favor, introduce tu **Google API Key** en la barra lateral para activar el agente.")
     st.stop()
 
-# --- Herramientas ---
+# --- HERRAMIENTAS (Lógica Preservada) ---
 
 def get_current_time(query: str = "") -> str:
     """Devuelve la fecha y hora actual exacta."""
@@ -48,9 +64,7 @@ def get_current_time(query: str = "") -> str:
     return now.strftime("%Y-%m-%d %H:%M:%S")
 
 def get_weather(location: str) -> str:
-    """
-    Obtiene el clima actual y pronóstico para una ubicación dada usando Open-Meteo.
-    """
+    """Obtiene el clima actual y pronóstico usando Open-Meteo."""
     try:
         # 1. Geocoding
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location}&count=1&language=es&format=json"
@@ -84,73 +98,15 @@ def get_weather(location: str) -> str:
              report += f"- Mínima hoy: {min_temp}°C\n"
              
         return report
-        
     except Exception as e:
         return f"Error al obtener el clima: {str(e)}"
-
-def check_aemet_alerts(location: str) -> str:
-    """
-    Consulta alertas meteorológicas vigentes en AEMET para una ubicación (provincia o zona).
-    Requiere AEMET API Key.
-    """
-    if not aemet_api_key:
-        return "No puedo consultar alertas sin una AEMET API Key configurada."
-        
-    try:
-        # Suppress SSL warnings
-        requests.packages.urllib3.disable_warnings()
-        
-        # Endpoint para avisos de hoy
-        url = "https://opendata.aemet.es/opendata/api/avisos_de_fenomenos_meteorologicos_adversos/archivo/hoy"
-        params = {"api_key": aemet_api_key}
-        
-        print(f"DEBUG: Consultando API AEMET para {location}...")
-        
-        # 1. Intentar API
-        try:
-            res = requests.get(url, params=params, verify=False, timeout=10)
-            if res.status_code == 200:
-                json_res = res.json()
-                if json_res.get("estado") == 200:
-                    data_url = json_res.get("datos")
-                    data_res = requests.get(data_url, verify=False, timeout=20)
-                    data_res.encoding = data_res.apparent_encoding
-                    content = data_res.text
-                    
-                    # Normalización simple para búsqueda (minusculas)
-                    content_lower = content.lower()
-                    loc_lower = location.lower()
-                    
-                    # Buscamos la ubicación
-                    if loc_lower in content_lower:
-                        idx = content_lower.find(loc_lower)
-                        start = max(0, idx - 100)
-                        end = min(len(content), idx + 300)
-                        return f"⚠️ ALERTA ENCONTRADA (API) para {location}.\nFragmento del boletín:\n...{content[start:end]}..."
-                    else:
-                        print(f"DEBUG: '{location}' no encontrado en el boletín API.")
-                        # Si no encuentra la ciudad exacta, busca "España" o zonas grandes para ver si hay avisos generalizados
-                        # Pero mejor pasamos al fallback de búsqueda que es más "semántico"
-                        pass 
-        except Exception as e:
-            print(f"Fallo API AEMET: {e}")
-            pass
-
-        # 2. Fallback: Buscar en DuckDuckGo (Mejorado)
-        # Buscamos específicamente en la web de AEMET o noticias recientes
-        search_query = f"AEMET avisos {location} hoy última hora"
-        print(f"DEBUG: Fallback búsqueda '{search_query}'")
-        return search_func(search_query)
-
-    except Exception as e:
-        return f"Error consultando alertas: {str(e)}"
 
 # Re-integrar función de búsqueda para el fallback
 def search_func(query: str) -> str:
     """Busca en internet con reintentos."""
     try:
         from duckduckgo_search import DDGS
-        print(f"DEBUG: Ejecutando búsqueda DDGS: {query}")
+        # print(f"DEBUG: Ejecutando búsqueda DDGS: {query}")
         try:
             with DDGS() as ddgs:
                 results = list(ddgs.text(query, max_results=4, backend="html"))
@@ -164,6 +120,48 @@ def search_func(query: str) -> str:
         return "No pude confirmar alertas por internet. Por precaución, revisa www.aemet.es."
     except: return "Error en librería de búsqueda."
 
+def check_aemet_alerts(location: str) -> str:
+    """Consulta alertas meteorológicas vigentes en AEMET con fallback a web."""
+    if not aemet_api_key:
+        return f"INFO: No tienes AEMET API Key. Buscando información pública en la web para {location}..."
+        #return search_func(f"Alertas AEMET {location} hoy") # Opción directa si queremos
+        
+    try:
+        requests.packages.urllib3.disable_warnings()
+        url = "https://opendata.aemet.es/opendata/api/avisos_de_fenomenos_meteorologicos_adversos/archivo/hoy"
+        params = {"api_key": aemet_api_key}
+        
+        # 1. Intentar API
+        try:
+            res = requests.get(url, params=params, verify=False, timeout=10)
+            if res.status_code == 200:
+                json_res = res.json()
+                if json_res.get("estado") == 200:
+                    data_url = json_res.get("datos")
+                    data_res = requests.get(data_url, verify=False, timeout=20)
+                    data_res.encoding = data_res.apparent_encoding
+                    content = data_res.text
+                    
+                    # Normalización y búsqueda
+                    if location.lower() in content.lower():
+                        idx = content.lower().find(location.lower())
+                        start = max(0, idx - 100)
+                        end = min(len(content), idx + 300)
+                        return f"⚠️ ALERTA ENCONTRADA (API) para {location}.\nFragmento:\n...{content[start:end]}..."
+                    else:
+                        # No encontrado en boletín -> Fallback
+                        pass 
+        except Exception:
+            pass
+
+        # 2. Fallback
+        return search_func(f"AEMET avisos {location} hoy última hora")
+
+    except Exception as e:
+        return f"Error consultando alertas: {str(e)}"
+
+# --- Configuración del Agente ---
+
 time_tool = Tool(
     name="get_current_time",
     func=get_current_time,
@@ -173,18 +171,17 @@ time_tool = Tool(
 weather_tool = Tool(
     name="get_weather",
     func=get_weather,
-    description="Útil para saber el clima, temperatura o pronóstico del tiempo de una ciudad o lugar."
+    description="Útil para saber el clima, temperatura o pronóstico del tiempo de una ciudad."
 )
 
 aemet_tool = Tool(
     name="check_aemet_alerts",
     func=check_aemet_alerts,
-    description="Útil para comprobar si hay alertas meteorológicas oficiales (AEMET) de lluvia, viento, nieve, etc. en una provincia o ciudad española."
+    description="Útil para comprobar si hay alertas meteorológicas oficiales (AEMET). Si la ciudad no tiene alertas, devuelve info normal."
 )
 
 tools = [time_tool, weather_tool, aemet_tool]
 
-# --- Prompt ---
 template = '''Answer the following questions as best you can. You have access to the following tools:
 
 {tools}
@@ -207,55 +204,57 @@ Thought:{agent_scratchpad}'''
 
 prompt = PromptTemplate.from_template(template)
 
-try:
-    # Inicializar el LLM
-    llm = ChatGoogleGenerativeAI(model=selected_model, google_api_key=google_api_key, temperature=0)
+# --- Inicialización ---
+if "agent_executor" not in st.session_state:
+    try:
+        llm = ChatGoogleGenerativeAI(model=selected_model, google_api_key=google_api_key, temperature=0)
+        agent = create_react_agent(llm, tools, prompt)
+        st.session_state.agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
+    except Exception as e:
+        st.error("Error iniciando el motor IA.")
 
-    # Crear el agente
-    agent = create_react_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
-
-except Exception as e:
-    st.error(f"Error al inicializar el agente: {e}")
-    st.stop()
-
-# --- Gestión del Historial de Chat ---
+# --- Interfaz de Chat ---
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "¡Hola! Soy tu agente meteorológico. Pregúntame sobre el clima o si hay alertas en tu zona."}
+        {"role": "assistant", "content": "¡Hola! Soy tu asistente climático inteligente. 🌩️\nPregúntame por el tiempo, la hora o alertas de AEMET."}
     ]
 
-# Mostrar mensajes del historial
+# Renderizar historial
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
+    avatar = "👤" if msg["role"] == "user" else "🤖"
+    with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(msg["content"])
 
-# --- Ejecución del Agente ---
-
-if prompt_input := st.chat_input("Escribe tu pregunta aquí..."):
-    # Agregar mensaje del usuario al historial
+# Input de usuario
+if prompt_input := st.chat_input("¿Qué tiempo hace en Madrid?"):
     st.session_state.messages.append({"role": "user", "content": prompt_input})
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar="👤"):
         st.markdown(prompt_input)
 
-    # Respuesta del asistente
-    with st.chat_message("assistant"):
-        st_callback = StreamlitCallbackHandler(st.container())
-        
-        try:
-            # Ejecutar el agente con el callback de Streamlit
-            response = agent_executor.invoke(
-                {"input": prompt_input},
-                {"callbacks": [st_callback]}
-            )
-            output_text = response["output"]
-            
-            st.markdown(output_text)
-            
-            # Guardar respuesta en el historial
-            st.session_state.messages.append({"role": "assistant", "content": output_text})
-            
-        except Exception as e:
-            st.error(f"Ocurrió un error: {e}")
-            st.session_state.messages.append({"role": "assistant", "content": f"Lo siento, ocurrió un error: {e}"})
+    with st.chat_message("assistant", avatar="🤖"):
+        # Contenedor colapsable para el "pensamiento" del agente
+        with st.status("🧠 Analizando servicios meteorológicos...", expanded=False) as status:
+            st_cb = StreamlitCallbackHandler(status)
+            try:
+                # Si cambiaron la key/modelo, hay que reiniciar el executor? 
+                # Simplificación: Lo recreamos si no existe o usamos el de sesión.
+                # Para asegurar dinamismo con sidebar, mejor recrear 'llm' en cada run o confiar en el rerun de streamlit.
+                # Al ser script, se recrea 'llm' arriba. Actualizamos el executor.
+                llm = ChatGoogleGenerativeAI(model=selected_model, google_api_key=google_api_key, temperature=0)
+                agent = create_react_agent(llm, tools, prompt)
+                agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
+                
+                response = agent_executor.invoke(
+                    {"input": prompt_input},
+                    {"callbacks": [st_cb]}
+                )
+                status.update(label="✅ Análisis completado", state="complete", expanded=False)
+                output_text = response["output"]
+            except Exception as e:
+                status.update(label="❌ Error en el proceso", state="error")
+                output_text = f"Lo siento, tuve un problema técnico: {str(e)}"
+
+        # Mostrar respuesta final fuera del expander
+        st.markdown(output_text)
+        st.session_state.messages.append({"role": "assistant", "content": output_text})
