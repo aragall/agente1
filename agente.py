@@ -34,25 +34,15 @@ if not google_api_key:
     st.info("👋 Por favor, ingresa tu **Google API Key** en la barra lateral para comenzar.")
     st.stop()
 
-# --- Herramienta de Búsqueda Personalizada (DuckDuckGo v5 compatibilidad) ---
 def search_func(query: str) -> str:
     """Busca en internet información reciente con reintentos."""
     try:
         from duckduckgo_search import DDGS
         
-        # Intentar con backend por defecto (api)
+        # Intentar con backend html (más robusto)
         try:
             with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=5))
-                if results:
-                    return str(results)
-        except Exception as e_api:
-            print(f"Error con backend API: {e_api}")
-            pass # Continuar al siguiente backend
-
-        # Intentar con backend html (más lento pero más robusto a veces)
-        try:
-            with DDGS() as ddgs:
+                # Usamos backend='html' y limitamos resultados
                 results = list(ddgs.text(query, max_results=5, backend="html"))
                 if results:
                     return str(results)
@@ -70,12 +60,13 @@ def search_func(query: str) -> str:
              print(f"Error con backend Lite: {e_lite}")
              pass
              
-        return "No se encontraron resultados o hubo un error de conexión con DuckDuckGo."
+        return "No se encontraron resultados. Intenta reformular la búsqueda."
 
     except ImportError:
         return "Error: La librería duckduckgo_search no está instalada correctamente."
     except Exception as e:
         return f"Error general en la búsqueda: {str(e)}"
+
 
 search_tool = Tool(
     name="duckduckgo_search",
