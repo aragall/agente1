@@ -8,9 +8,9 @@ from langchain_community.callbacks.streamlit import StreamlitCallbackHandler
 # --- Configuración de la página ---
 st.set_page_config(page_title="Agente Inteligente con LangChain", page_icon="🤖", layout="wide")
 
-st.title("🤖 FASTANS")
+st.title("⚡️ FASTANS ⚡️")
 st.markdown("""
-Este es un agente que utiliza **Google Gemini** para razonar y **DuckDuckGo** para buscar información reciente en internet.
+Este es el mejor agente para una respuesta rápida.
 """)
 
 # --- Sidebar para configuración ---
