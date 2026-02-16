@@ -97,42 +97,44 @@ def check_aemet_alerts(location: str) -> str:
         return "No puedo consultar alertas sin una AEMET API Key configurada."
         
     try:
+        # Suppress SSL warnings for AEMET (common issue)
+        requests.packages.urllib3.disable_warnings()
+        
         # Endpoint para avisos de hoy
         url = "https://opendata.aemet.es/opendata/api/avisos_de_fenomenos_meteorologicos_adversos/archivo/hoy"
-        headers = {"api_key": aemet_api_key}
         
-        # 1. Obtener URL de datos
-        res = requests.get(url, headers=headers)
+        # Intentar con query param que suele ser más robusto
+        params = {"api_key": aemet_api_key}
+        
+        # 1. Obtener URL de datos (verify=False porque AEMET a veces tiene problemas de certs)
+        res = requests.get(url, params=params, verify=False, timeout=10)
+        
         if res.status_code != 200:
-             return f"Error conectando con AEMET: {res.status_code} - {res.text}"
+             return f"Error conectando con AEMET (Status {res.status_code}). Verifica tu API Key. Respuesta: {res.text[:100]}"
              
         json_res = res.json()
         if json_res.get("estado") != 200:
-             return f"Error API AEMET: {json_res.get('descripcion')}"
+             return f"Error devuelto por la API AEMET: {json_res.get('descripcion')}"
              
         data_url = json_res.get("datos")
         
-        # 2. Descargar datos (suelen ser XML/JSON)
-        # Nota: AEMET a veces devuelve XML en este endpoint aunque pidas JSON en la metadata
-        data_res = requests.get(data_url)
+        # 2. Descargar datos
+        data_res = requests.get(data_url, verify=False, timeout=20)
         
-        # Como es complejo parsear todo el CAP (Common Alerting Protocol), 
-        # haremos una búsqueda de texto simple primero para ver si la ubicación está mencionada.
-        # En una app real, usaríamos una librería CAP parser.
+        # AEMET a veces devuelve encoding 'iso-8859-1' o 'windows-1252'
+        data_res.encoding = data_res.apparent_encoding
         
         content = data_res.text
         
         # Búsqueda muy básica para demostración
-        # Buscamos si el nombre de la ubicación aparece en las alertas
         if location.lower() in content.lower():
-             # Extraer un fragmento alrededor
              idx = content.lower().find(location.lower())
              start = max(0, idx - 100)
              end = min(len(content), idx + 300)
              snippet = content[start:end]
-             return f"⚠️ POSIBLE ALERTA ENCONTRADA para {location}. Fragmento del aviso oficial:\n...{snippet}...\n(Consulta la web de AEMET para detalles oficiales)."
+             return f"⚠️ POSIBLE ALERTA ENCONTRADA para {location}. Fragmento:\n...{snippet}..."
         else:
-             return f"No encontré menciones explícitas de alertas para '{location}' en el boletín de hoy de AEMET. (Nota: Esto es una búsqueda básica en el texto del aviso)."
+             return f"No encontré menciones de alertas para '{location}' en el boletín de hoy."
 
     except Exception as e:
         return f"Error consultando alertas AEMET: {str(e)}"
