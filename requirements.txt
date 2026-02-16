@@ -1,5 +1,8 @@
-streamlit
-langchain
-langchain-google-genai
-langchain-community
-duckduckgo-search
+streamlit==1.50.0
+langchain==0.3.27
+langchain-community==0.3.31
+langchain-core==0.3.83
+langchain-text-splitters==0.3.11
+langchain-google-genai==2.1.12
+duckduckgo-search==5.3.1
+watchdog

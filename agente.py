@@ -1,16 +1,16 @@
 import streamlit as st
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.tools import DuckDuckGoSearchRun
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.prompts import PromptTemplate
 from langchain_community.callbacks.streamlit import StreamlitCallbackHandler
+from langchain_core.tools import Tool
 
 # --- Configuración de la página ---
-st.set_page_config(page_title="Agente Inteligente con LangChain", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="Agente Inteligente con LangChain", page_icon="⚡️", layout="wide")
 
 st.title("⚡️ FASTANS ⚡️")
 st.markdown("""
-Este es el mejor agente para una respuesta rápida.
+Este es el mejor agente para una respuesta rápida y actualizada.
 """)
 
 # --- Sidebar para configuración ---
@@ -21,36 +21,42 @@ with st.sidebar:
     google_api_key = st.text_input("Google API Key", type="password", key="google_api_key")
     st.markdown("[Consigue tu API Key aquí](https://aistudio.google.com/app/apikey)")
     
-    selected_model = st.selectbox("Modelo", ["gemini-2.5-flash", "gemini-1.0-pro"], index=0)
+    # Modelos actualizados
+    model_options = ["gemini-3-preview", "gemini-1.5-pro", "gemini-2.0-flash-exp"]
+    selected_model = st.selectbox("Modelo", model_options, index=0)
     
     st.divider()
     st.markdown("### Acerca de")
     st.markdown("Creado con LangChain y Streamlit.")
 
-# --- Inicialización del Agente ---
-
 if not google_api_key:
     st.info("👋 Por favor, ingresa tu **Google API Key** en la barra lateral para comenzar.")
     st.stop()
 
-if google_api_key:
-    selected_model = "gemini-2.5-flash"  # Restore valid model
+# --- Herramienta de Búsqueda Personalizada (DuckDuckGo v5 compatibilidad) ---
+def search_func(query: str) -> str:
+    """Busca en internet información reciente."""
+    try:
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=5))
+            if not results:
+                return "No se encontraron resultados."
+            return str(results)
+    except ImportError:
+        return "Error: La librería duckduckgo_search no está instalada correctamente."
+    except Exception as e:
+        return f"Error en la búsqueda: {str(e)}"
 
-# Definir herramientas
-tools = []
+search_tool = Tool(
+    name="duckduckgo_search",
+    func=search_func,
+    description="Útil para buscar información actual, noticias o datos recientes en internet."
+)
 
-try:
-    from langchain_community.tools import DuckDuckGoSearchRun
-    search = DuckDuckGoSearchRun()
-    tools.append(search)
-except ImportError as e:
-    st.warning(f"⚠️ No se pudo cargar la herramienta de búsqueda: {e}. El agente funcionará sin búsqueda.")
-except Exception as e:
-    st.warning(f"⚠️ Error al inicializar la búsqueda: {e}. El agente funcionará sin búsqueda.")
+tools = [search_tool]
 
-
-# Definir el prompt
-# Usamos un prompt estándar para ReAct
+# --- Prompt ---
 template = '''Answer the following questions as best you can. You have access to the following tools:
 
 {tools}
@@ -89,7 +95,7 @@ except Exception as e:
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "¡Hola! Soy un agente inteligente. Puedo buscar en internet y responder tus preguntas. ¿En qué te ayudo hoy?"}
+        {"role": "assistant", "content": "¡Hola! Soy FASTANS. Puedo buscar en internet y responder tus preguntas rápidamente. ¿Qué necesitas saber?"}
     ]
 
 # Mostrar mensajes del historial
