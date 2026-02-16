@@ -4,6 +4,7 @@ from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.prompts import PromptTemplate
 from langchain_community.callbacks.streamlit import StreamlitCallbackHandler
 from langchain_core.tools import Tool
+import time
 
 # --- Configuración de la página ---
 st.set_page_config(page_title="Agente Inteligente con LangChain", page_icon="⚡️", layout="wide")
@@ -35,18 +36,46 @@ if not google_api_key:
 
 # --- Herramienta de Búsqueda Personalizada (DuckDuckGo v5 compatibilidad) ---
 def search_func(query: str) -> str:
-    """Busca en internet información reciente."""
+    """Busca en internet información reciente con reintentos."""
     try:
         from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=5))
-            if not results:
-                return "No se encontraron resultados."
-            return str(results)
+        
+        # Intentar con backend por defecto (api)
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=5))
+                if results:
+                    return str(results)
+        except Exception as e_api:
+            print(f"Error con backend API: {e_api}")
+            pass # Continuar al siguiente backend
+
+        # Intentar con backend html (más lento pero más robusto a veces)
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=5, backend="html"))
+                if results:
+                    return str(results)
+        except Exception as e_html:
+             print(f"Error con backend HTML: {e_html}")
+             pass
+
+        # Intentar con backend lite
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=5, backend="lite"))
+                if results:
+                    return str(results)
+        except Exception as e_lite:
+             print(f"Error con backend Lite: {e_lite}")
+             pass
+             
+        return "No se encontraron resultados o hubo un error de conexión con DuckDuckGo."
+
     except ImportError:
         return "Error: La librería duckduckgo_search no está instalada correctamente."
     except Exception as e:
-        return f"Error en la búsqueda: {str(e)}"
+        return f"Error general en la búsqueda: {str(e)}"
 
 search_tool = Tool(
     name="duckduckgo_search",
