@@ -46,7 +46,7 @@ with st.sidebar:
         st.markdown("[Obtener AEMET Key](https://opendata.aemet.es/centrodescargas/inicio)")
 
     with st.expander("🧠 Modelo IA", expanded=False):
-        model_options = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"]
+        model_options = ["gemini-2.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"]
         selected_model = st.selectbox("Versión", model_options, index=0)
     
     st.divider()
