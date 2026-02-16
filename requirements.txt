@@ -4,5 +4,5 @@ langchain-community==0.3.31
 langchain-core==0.3.83
 langchain-text-splitters==0.3.11
 langchain-google-genai==2.1.12
-duckduckgo-search==5.3.1
+requests
 watchdog

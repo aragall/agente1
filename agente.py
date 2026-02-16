@@ -4,14 +4,15 @@ from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.prompts import PromptTemplate
 from langchain_community.callbacks.streamlit import StreamlitCallbackHandler
 from langchain_core.tools import Tool
-import time
+import datetime
+import requests
 
 # --- Configuración de la página ---
-st.set_page_config(page_title="Agente Inteligente con LangChain", page_icon="⚡️", layout="wide")
+st.set_page_config(page_title="Agente de Tiempo y Clima", page_icon="☀️", layout="wide")
 
-st.title("⚡️ FASTANS ⚡️")
+st.title("☀️ Agente Meteorológico ☁️")
 st.markdown("""
-Este es el mejor agente para una respuesta rápida y actualizada.
+Este agente te dice la hora exacta y el clima en cualquier parte del mundo usando **Open-Meteo**.
 """)
 
 # --- Sidebar para configuración ---
@@ -28,53 +29,77 @@ with st.sidebar:
     
     st.divider()
     st.markdown("### Acerca de")
-    st.markdown("Creado con LangChain y Streamlit.")
+    st.markdown("Creado con LangChain, Streamlit y Open-Meteo API.")
 
 if not google_api_key:
     st.info("👋 Por favor, ingresa tu **Google API Key** en la barra lateral para comenzar.")
     st.stop()
 
-def search_func(query: str) -> str:
-    """Busca en internet información reciente con reintentos."""
+# --- Herramientas ---
+
+def get_current_time(query: str = "") -> str:
+    """Devuelve la fecha y hora actual exacta."""
+    now = datetime.datetime.now()
+    return now.strftime("%Y-%m-%d %H:%M:%S")
+
+def get_weather(location: str) -> str:
+    """
+    Obtiene el clima actual y pronóstico para una ubicación dada.
+    Usa Open-Meteo API (gratuita).
+    """
     try:
-        from duckduckgo_search import DDGS
+        # 1. Geocoding
+        geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location}&count=1&language=es&format=json"
+        geo_res = requests.get(geo_url).json()
         
-        # Intentar con backend html (más robusto)
-        try:
-            with DDGS() as ddgs:
-                # Usamos backend='html' y limitamos resultados
-                results = list(ddgs.text(query, max_results=5, backend="html"))
-                if results:
-                    return str(results)
-        except Exception as e_html:
-             print(f"Error con backend HTML: {e_html}")
-             pass
-
-        # Intentar con backend lite
-        try:
-            with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=5, backend="lite"))
-                if results:
-                    return str(results)
-        except Exception as e_lite:
-             print(f"Error con backend Lite: {e_lite}")
-             pass
+        if not geo_res.get("results"):
+            return f"No encontré la ubicación '{location}'. Intenta ser más específico."
+            
+        lat = geo_res["results"][0]["latitude"]
+        lon = geo_res["results"][0]["longitude"]
+        name = geo_res["results"][0]["name"]
+        
+        # 2. Weather
+        weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto"
+        weather_res = requests.get(weather_url).json()
+        
+        current = weather_res.get("current", {})
+        daily = weather_res.get("daily", {})
+        
+        temp = current.get("temperature_2m", "N/A")
+        wind = current.get("wind_speed_10m", "N/A")
+        
+        # Simple mapping for weather codes (WMO)
+        # https://open-meteo.com/en/docs
+        
+        report = f"Clima actual en {name}:\n"
+        report += f"- Temperatura: {temp}°C\n"
+        report += f"- Viento: {wind} km/h\n"
+        
+        if daily:
+             max_temp = daily.get('temperature_2m_max', ['N/A'])[0]
+             min_temp = daily.get('temperature_2m_min', ['N/A'])[0]
+             report += f"- Máxima hoy: {max_temp}°C\n"
+             report += f"- Mínima hoy: {min_temp}°C\n"
              
-        return "No se encontraron resultados. Intenta reformular la búsqueda."
-
-    except ImportError:
-        return "Error: La librería duckduckgo_search no está instalada correctamente."
+        return report
+        
     except Exception as e:
-        return f"Error general en la búsqueda: {str(e)}"
+        return f"Error al obtener el clima: {str(e)}"
 
-
-search_tool = Tool(
-    name="duckduckgo_search",
-    func=search_func,
-    description="Útil para buscar información actual, noticias o datos recientes en internet."
+time_tool = Tool(
+    name="get_current_time",
+    func=get_current_time,
+    description="Útil para saber la fecha, hora actual o qué día es hoy."
 )
 
-tools = [search_tool]
+weather_tool = Tool(
+    name="get_weather",
+    func=get_weather,
+    description="Útil para saber el clima, temperatura o pronóstico del tiempo de una ciudad o lugar."
+)
+
+tools = [time_tool, weather_tool]
 
 # --- Prompt ---
 template = '''Answer the following questions as best you can. You have access to the following tools:
@@ -115,7 +140,7 @@ except Exception as e:
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "¡Hola! Soy FASTANS. Puedo buscar en internet y responder tus preguntas rápidamente. ¿Qué necesitas saber?"}
+        {"role": "assistant", "content": "¡Hola! Soy tu agente meteorológico. Pregúntame la hora o el clima de cualquier ciudad."}
     ]
 
 # Mostrar mensajes del historial
